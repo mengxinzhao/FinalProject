@@ -19,12 +19,11 @@ logger.setLevel(logging.DEBUG)
 
 def accuracy(predictions, true_labels):
     """
-    :param prediction:  N x num_class probability array
-    :param grand_truth: N array of labels.
+    :param prediction:  N array
+    :param true_labels: N array of labels.
     :return: true prediction / all prediction
     """
-    predicted_labels = np.argmax(predictions, axis=1)
-    return np.mean(np.equal(predicted_labels,true_labels))
+    return np.mean(np.equal(predictions,true_labels))
 
 def false_accept(predictions,true_labels, threshold=0.2):
     """
@@ -96,7 +95,7 @@ def det_curve_plot(prediction,true_labels):
     plt.show()
     return far,frr,thres
 
-def eer(predcition,true_labels):
+def equal_error_rate(predcition,true_labels):
     """
 
     :param predcition:
@@ -107,71 +106,48 @@ def eer(predcition,true_labels):
     idx = np.nanargmin(np.absolute(far - frr))
     return  far[idx], thres[idx]
 
-def convert_prediction_to_one_against_rest_encode(predictions):
-    """
+def binarize_labels(labels,num_class):
+    b_labels = np.zeros((len(labels),num_class))
+    for test_id in range(len(labels)):
+        b_labels[test_id, labels[test_id]] = 1
+    return b_labels
 
-    :param predictions:
-    :return: one against rest encoded prediction matrix
-    """
-    test_scores = np.zeros_like(predictions)
-    # binarize the predictions
-    pos = np.argmax(predictions,axis=1)
-    for test_id in range(len(predictions)):
-            test_scores[test_id,pos[test_id]] = 1
-    return test_scores
-
-def convert_labels_to_one_against_rest_encode(grand_truth):
-
-    truth_scores = np.zeros_like(predictions)
-    # change it back to one against all encoding
-    for test_id in range(len(truth_scores)):
-        truth_scores[test_id, grand_truth[test_id]] = 1
-    return truth_scores
-
-def weighted_precision(predictions,grand_truth,num_class):
-    labels = np.eye(num_class)
-    truth_scores = convert_labels_to_one_against_rest_encode(grand_truth)
-    test_scores = convert_prediction_to_one_against_rest_encode(predictions)
-    return precision_score(truth_scores,test_scores,labels=np.unique(truth_scores),average='weighted')
-
-def weighted_recall(predictions,grand_truth,num_class):
-    labels = np.eye(num_class)
-    truth_scores = convert_labels_to_one_against_rest_encode(grand_truth)
-    test_scores = convert_prediction_to_one_against_rest_encode(predictions)
-    return recall_score(truth_scores,test_scores,labels=np.unique(truth_scores),average='weighted')
-
-def multiclass_roc_plot(predictions, grand_truth, thres= 0.2):
-    # codes from sklearn
+def multiclass_roc_plot(predictions, true_labels, num_class):
+    # codes  reference from sklearn
 
     # Compute ROC curve and ROC area for each class
-    truth_score = convert_labels_to_one_against_rest_encode(grand_truth)
-    test_scores = convert_prediction_to_one_against_rest_encode(predictions)
+    truth_scores = binarize_labels(true_labels,num_class)
+    test_scores = binarize_labels(predictions,num_class)
     lw = 2
-    n_classes = len(np.unique(grand_truth))
     fpr = dict()
     tpr = dict()
     roc_auc = dict()
 
-    for i in range(n_classes):
-        fpr[i], tpr[i], _ = roc_curve(test_scores[:, i], truth_score[:, i])
-        roc_auc[i] = auc(fpr[i], tpr[i])
+    for i in range(num_class):
+        _fpr, _tpr, _ = roc_curve(test_scores[:, i], truth_scores[:, i])
+        # have to exclude tpr none exist condition. that probably means there is no tp predicted at all
+        if np.any(np.isnan(_fpr)) == False and np.any(np.isnan(_tpr)) == False:
+            fpr[i],tpr[i] =  _fpr, _tpr
+            roc_auc[i] = auc(fpr[i], tpr[i])
 
     # Compute micro-average ROC curve and ROC area
-    fpr["micro"], tpr["micro"], _ = roc_curve(test_scores.ravel(), truth_score.ravel(),pos_label=1)
+    fpr["micro"], tpr["micro"], _ = roc_curve(test_scores.ravel(), truth_scores.ravel(),pos_label=1)
     roc_auc["micro"] = auc(fpr["micro"], tpr["micro"])
 
     # Compute macro-average ROC curve and ROC area
     # First aggregate all false positive rates
-    all_fpr = np.unique(np.concatenate([fpr[i] for i in range(n_classes)]))
+    #all_fpr = np.unique(np.concatenate([fpr[i] for i in range(min(num_class,len(fpr)))]))
+    all_fpr = np.unique(np.concatenate([fpr[i] for i in fpr.keys()]))
 
     # Then interpolate all ROC curves at this points
     mean_tpr = np.zeros_like(all_fpr)
-    for i in range(n_classes):
+    actual_num_class = 0
+    for i in fpr.keys():
         mean_tpr += interp(all_fpr, fpr[i], tpr[i])
+        actual_num_class +=1
 
     # Finally average it and compute AUC
-    mean_tpr /= n_classes
-
+    mean_tpr /= num_class
     fpr["macro"] = all_fpr
     tpr["macro"] = mean_tpr
     roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
@@ -189,9 +165,10 @@ def multiclass_roc_plot(predictions, grand_truth, thres= 0.2):
              color='navy', linestyle=':', linewidth=lw)
 
     #colors = cycle(['aqua', 'darkorange', 'cornflowerblue'])
-    #for i, color in zip(range(n_classes), colors):
+    #for i, color in zip(range(3), colors):
     #    plt.plot(fpr[i], tpr[i], color=color, lw=lw,
     #             label='ROC curve of class {0} (area = {1:0.2f})'
+    #                   ''.format(i, roc_auc[i]))
     #                   ''.format(i, roc_auc[i]))
 
     plt.plot([0, 1], [0, 1], 'k--', lw=lw)
@@ -213,16 +190,16 @@ if __name__ == '__main__':
         predictions[row] = predictions[row]/predictions[row].sum()
     print("prediction matrix\n", predictions)
     print("predicted labels ", np.argmax(predictions,axis=1))
+    predict_labels = np.array([np.argmax(predictions,axis=1)])
     # grand truth 10 class
     grand_truth = np.random.choice(num_class,num_test)
     print("grand truth",grand_truth)
-    print("accuracy: {0:.4f}".format(accuracy(predictions,grand_truth)))
+    print("accuracy: {0:.4f}".format(accuracy(predict_labels,grand_truth)))
     print("false_accept: {0:.4f}".format(false_accept(predictions, grand_truth)))
     print("false_reject: {0:.4f}".format(false_reject(predictions, grand_truth)))
     det_curve_plot(predictions,grand_truth)
-    errate , thres= eer(predictions, grand_truth)
+    errate , thres= equal_error_rate(predictions, grand_truth)
     print("eer: ",errate)
     print("thres: ",thres )
-    multiclass_roc_plot(predictions, grand_truth)
-    print("weighted precision: ", weighted_precision(predictions,grand_truth,num_class))
-    print("weighted recall: ", weighted_recall(predictions, grand_truth,num_class))
+    multiclass_roc_plot(predict_labels, grand_truth,num_class)
+

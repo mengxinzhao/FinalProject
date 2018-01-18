@@ -111,6 +111,7 @@ class Features():
 
         ss = StratifiedShuffleSplit(n_splits=1,test_size = 0.2, random_state=0)
         train_idcs, test_idcs = next(ss.split(features, labels))
+        np.save('../model/svm_test_labels.npy',test_idcs)
         return features[train_idcs],labels[train_idcs],features[test_idcs],labels[test_idcs]
 
 
