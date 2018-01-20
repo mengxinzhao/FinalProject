@@ -1,3 +1,5 @@
 bottleneck_features.npy filter=lfs diff=lfs merge=lfs -text
 bottleneck_features_face_cropped.npy filter=lfs diff=lfs merge=lfs -text
 labels.npy filter=lfs diff=lfs merge=lfs -text
+bottleneck_features_face_5min.npy filter=lfs diff=lfs merge=lfs -text
+labels_5min.npy filter=lfs diff=lfs merge=lfs -text
