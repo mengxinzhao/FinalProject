@@ -8,56 +8,83 @@
 
 import numpy as np
 from sklearn.metrics import confusion_matrix, roc_curve,auc,precision_score,recall_score,average_precision_score
+from sklearn.preprocessing import normalize
 import matplotlib.pyplot as plt
 from scipy import interp
 from itertools import cycle
 import logging
+from collections import OrderedDict
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-def accuracy(predictions, true_labels):
+# preserving order
+def unique_labels(labels):
+    labels = np.squeeze(labels)
+    uniq = OrderedDict()
+    for i in labels:
+         uniq[i] = 1
+    return uniq.keys()
+
+def accuracy(predict_probs, true_labels):
     """
-    :param prediction:  N array
-    :param true_labels: N array of labels.
+    :param prediction:  prediction array  N x num_class probability array
+    :param true_labels: N array of labels.might be (N,) dimesion.
     :return: true prediction / all prediction
     """
-    return np.mean(np.equal(predictions,true_labels))
+    true_labels = np.squeeze(true_labels)
+    label_set = np.unique(true_labels)
+    predicted_labels = [label_set[id] if id < len(label_set) else -1  for id in np.argmax(predict_probs,axis = 1)]
+    return np.mean(np.equal(predicted_labels,true_labels))
 
-def false_accept(predictions,true_labels, threshold=0.2):
+def false_accept(predict_probs,true_labels, threshold=0.2):
     """
     :param predictions: prediction array  N x num_class probability array
     :param true_labels: true test label array N array of labels.
     :param threshold:
     :return: number of imposter scores exceeding threshold / number of all imposters
     """
+    true_labels = np.squeeze(true_labels)
+    label_to_index = dict()
+    for i,label in enumerate(np.unique(true_labels)):
+        label_to_index[label] = i
     # for each test, only one is a genuine everyone is seem as imposter
-    num_imposter = (len(np.unique(true_labels)) - 1 )* len(predictions)
-    thresholded = predictions  - threshold
+    num_imposter = (len(np.unique(true_labels)) - 1 )* len(predict_probs)
+    thresholded = predict_probs  - threshold
 
     num_accept = 0
     for test_id in range(len(thresholded)):
         num_accept +=  np.sum(thresholded[test_id]>0 )
-        if thresholded[test_id, true_labels[test_id]] > 0:
-            num_accept -=1 # minus  true acceptance
+        if true_labels[test_id] in label_to_index.keys():
+            if thresholded[test_id, label_to_index[true_labels[test_id]]] > 0:
+                num_accept -=1 # minus  true acceptance
+        else:
+            logger.warn("predicted label {} not seen in the test label set!".format(true_labels[test_id]))
 
     return num_accept /num_imposter
 
-def false_reject(predictions,true_labels, threshold=0.2):
+def false_reject(predict_probs,true_labels, threshold=0.2):
     """
     :param predictions: prediction array
     :param true_labels: true test label array
     :param threshold:
     :return: number of genuines scores below threshold/number of all genuine scores
     """
+    true_labels = np.squeeze(true_labels)
+    label_to_index = dict()
+    for i,label in enumerate(np.unique(true_labels)):
+        label_to_index[label] = i
     num_genuine = len(true_labels)
-    thresholded = predictions - threshold
+    thresholded = predict_probs - threshold
 
-    return np.sum([1 for test_id in range(len(predictions)) if thresholded[test_id, true_labels[test_id]] < 0 ])/num_genuine
+    return np.sum([1 for test_id in range(len(predict_probs))
+                   if true_labels[test_id] in label_to_index.keys()
+                   and thresholded[test_id, label_to_index[true_labels[test_id]]] < 0 ]
+                  )/num_genuine
 
 # TODO: there has to be a better way to draw the curve and estimate the ERR
-def det_curve(prediction,true_labels):
+def det_curve(predict_probs,true_labels):
     """
     :param prediction:  prediction array
     :param true_labels: true test label array
@@ -71,17 +98,17 @@ def det_curve(prediction,true_labels):
 
     for thres_value in values:
         thres.append(thres_value)
-        far.append(false_accept(predictions,true_labels,thres_value))
-        frr.append(false_reject(predictions,true_labels,thres_value))
+        far.append(false_accept(predict_probs,true_labels,thres_value))
+        frr.append(false_reject(predict_probs,true_labels,thres_value))
     far = np.vstack(far)
     frr = np.vstack(frr)
     thres = np.vstack(thres)
     return far, frr, thres
 
-def det_curve_plot(prediction,true_labels):
+def det_curve_plot(predict_probs,true_labels):
 
-    far,frr,thres = det_curve(prediction,true_labels)
-    plt.figure()
+    far,frr,thres = det_curve(predict_probs,true_labels)
+    plt.figure(figsize=(5, 5),)
     plt.plot(far, frr, label='DET')
     plt.plot(thres,frr,  label='FRR')
     plt.plot(thres, far, label='FAR')
@@ -95,29 +122,36 @@ def det_curve_plot(prediction,true_labels):
     plt.show()
     return far,frr,thres
 
-def equal_error_rate(predcition,true_labels):
+def equal_error_rate(predict_probs,true_labels):
     """
 
     :param predcition:
     :param true_labels:
     :return:  equal error rate when false acceptance and false rejection rate are minimal and optimal, thres
     """
-    far,frr,thres = det_curve(predictions,true_labels)
+    far,frr,thres = det_curve(predict_probs,true_labels)
     idx = np.nanargmin(np.absolute(far - frr))
     return  far[idx], thres[idx]
 
 def binarize_labels(labels,num_class):
+
+    true_labels = np.squeeze(labels)
+    label_to_index = dict()
+    for i,label in enumerate(np.unique(true_labels)):
+        label_to_index[label] =i
+
     b_labels = np.zeros((len(labels),num_class))
+
     for test_id in range(len(labels)):
-        b_labels[test_id, labels[test_id]] = 1
+        b_labels[test_id, label_to_index[labels[test_id]]] = 1
     return b_labels
 
-def multiclass_roc_plot(predictions, true_labels, num_class):
+def multiclass_roc_plot(predicted_labels, true_labels, num_class):
     # codes  reference from sklearn
 
     # Compute ROC curve and ROC area for each class
-    truth_scores = binarize_labels(true_labels,num_class)
-    test_scores = binarize_labels(predictions,num_class)
+    truth_scores = binarize_labels(np.squeeze(true_labels),num_class)
+    test_scores =  binarize_labels(predicted_labels,num_class)
     lw = 2
     fpr = dict()
     tpr = dict()
@@ -153,7 +187,7 @@ def multiclass_roc_plot(predictions, true_labels, num_class):
     roc_auc["macro"] = auc(fpr["macro"], tpr["macro"])
 
     # Plot all ROC curves
-    plt.figure()
+    plt.figure(figsize=(5, 5),)
     plt.plot(fpr["micro"], tpr["micro"],
              label='micro-average ROC curve (area = {0:0.2f})'
                    ''.format(roc_auc["micro"]),
@@ -180,26 +214,28 @@ def multiclass_roc_plot(predictions, true_labels, num_class):
     plt.legend(loc="lower right")
     plt.show()
 
+def test_metrics(predict_probs,true_labels,num_class):
+    multiclass_roc_plot
 
 if __name__ == '__main__':
-    num_class = 4
-    num_test = 10
-    # prediction for num_class. row sums up to 1
-    predictions = np.random.rand(num_test, num_class)
-    for row in range(len(predictions)):
-        predictions[row] = predictions[row]/predictions[row].sum()
-    print("prediction matrix\n", predictions)
-    print("predicted labels ", np.argmax(predictions,axis=1))
-    predict_labels = np.array([np.argmax(predictions,axis=1)])
+    num_class = 15
+    num_test =  50
+
+    probs = np.random.rand(num_test, num_class)
+    probs = normalize(probs, axis=1, norm='l1')
     # grand truth 10 class
     grand_truth = np.random.choice(num_class,num_test)
-    print("grand truth",grand_truth)
-    print("accuracy: {0:.4f}".format(accuracy(predict_labels,grand_truth)))
-    print("false_accept: {0:.4f}".format(false_accept(predictions, grand_truth)))
-    print("false_reject: {0:.4f}".format(false_reject(predictions, grand_truth)))
-    det_curve_plot(predictions,grand_truth)
-    errate , thres= equal_error_rate(predictions, grand_truth)
-    print("eer: ",errate)
-    print("thres: ",thres )
-    multiclass_roc_plot(predict_labels, grand_truth,num_class)
+    #print("probility matrix:",probs)
+    print("grand truth:",grand_truth)
+    print("predicted labels:",np.argmax(probs,axis=1))
+
+    test_metrics(probs,grand_truth,num_class)
+
+    predictions = np.load('../model/svm_prediction_2.npy')
+    logger.info("prediction shape: {}".format(predictions.shape))
+    predict_probs = np.load('../model/svm_prediction_probability_2.npy')
+    test_label = np.squeeze(np.load('../model/svm_test_labels_2.npy'))
+    test_metrics(predict_probs,test_label,len(np.unique(test_label)))
+
+
 

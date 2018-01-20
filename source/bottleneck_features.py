@@ -5,7 +5,6 @@ import logging
 import os
 from keras.applications.resnet50  import ResNet50
 from keras.applications.resnet50 import preprocess_input
-from keras.utils import np_utils
 from tqdm import tqdm
 from sklearn.model_selection import StratifiedShuffleSplit
 
@@ -18,10 +17,10 @@ logger.setLevel(logging.WARNING)
 
 
 class Features():
-    def __init__(self, dataset, img_width=224, img_height=224,num_classes=1208, face_crop = True, features_dir='../data'):
+    def __init__(self, dataset_path, img_width=224, img_height=224,num_classes=1208, face_crop = True, min_images_per_label=10, features_dir='../data'):
         self.img_width = img_width
         self.img_height = img_height
-        self.dataset = dataset
+        self.dataset = get_dataset(dataset_path,min_images_per_label)
         self.model = ResNet50(include_top=False,weights='imagenet')
         self.batch_size = 128
         self.num_classes = num_classes
@@ -51,11 +50,11 @@ class Features():
         :return: ont-hot encoded labels
         """
         # -1 trick for the reason that the colorferet labels start with 1
-        targets = [np.full((len(id.image_paths), 1),int(id.name)-1) for id in self.dataset]
-        targets = np.vstack(targets)
-        labels = np_utils.to_categorical(targets, self.num_classes)
-        file_name = os.path.join(self.features_dir,'labels.npy')
-        np.save(open(file_name, 'wb'), labels)
+
+        labels = [np.full((len(id.image_paths), 1),int(id.name)-1) for id in self.dataset]
+        labels = np.vstack(labels)
+        file_name = os.path.join(self.features_dir,'labels_5min.npy')
+        np.save(open(file_name, 'wb'),labels)
         return labels
 
     ## TODO: implement data generator to continously provide tensors and feed the model
@@ -84,7 +83,7 @@ class Features():
         # weird np.save can't do incremental save. It's lucky here that the vector output
         # is 2048 per features and total images are about 13k. If there is million images,
         # the array here is too large
-        file_name = os.path.join(self.features_dir, 'bottleneck_features_face_cropped.npy')
+        file_name = os.path.join(self.features_dir, 'bottleneck_features_face_5min.npy')
         np.save(open(file_name, 'wb'),features)
         return features
 
@@ -93,7 +92,7 @@ class Features():
         split the feature codes into train and test and save them in numpy array
         :param features: features array
         :param features_path:  feature array path if it is loading from file
-        :return: splited train_data, train_label, test_data, test_label
+        :return: splited train_data, train_label, test_data, test_label,test_idcs
         """
         if features_path is None or labels_path is None:
             raise ValueError("No bottleneck features available")
@@ -111,21 +110,20 @@ class Features():
 
         ss = StratifiedShuffleSplit(n_splits=1,test_size = 0.2, random_state=0)
         train_idcs, test_idcs = next(ss.split(features, labels))
-        np.save('../model/svm_test_labels.npy',test_idcs)
-        return features[train_idcs],labels[train_idcs],features[test_idcs],labels[test_idcs]
+        np.save('../model/svm_test_labels_idcs.npy',labels[test_idcs])
+        return features[train_idcs],labels[train_idcs],features[test_idcs],labels[test_idcs],test_idcs
 
 
 # generate bottleneck features offline
 if __name__ == '__main__':
-    dataset  = get_dataset('/Volumes/ML/ColorFeret_Test/',min_images_per_label=3)
-    feature = Features(dataset, 224, 224, 1208,face_crop=False, features_dir='../data/')
+    feature = Features('/Volumes/ML/ColorFeret_Test/', 224, 224, 1208,face_crop=False, min_images_per_label=3, features_dir='../data/')
     #codes = feature.get_feature_codes()
     #labels =feature.get_labels()
     codes = np.load('../data/bottleneck_features.npy')
     labels = np.load('../data/labels.npy')
     print(labels.shape)
     print(codes.shape)
-    train_data,train_labels,test_data,test_labels = feature.get_train_test_set(codes,labels)
+    train_data,train_labels,test_data,test_labels,_ = feature.get_train_test_set(codes,labels)
     print(train_data.shape,train_labels.shape,test_data.shape,test_labels.shape)
 
 
