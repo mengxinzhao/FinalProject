@@ -31,13 +31,10 @@ class SVMClassifier():
 
 
     def prepare(self):
-        self.train_codes,self. train_labels, self. test_codes,self. test_labels, _ = \
-            self.feature.get_train_test_set(self.feature.get_feature_codes(),self.feature.get_labels())
-        # train_codes is 4 dimentions(num_samples, 1, 1, features). Need remove the middle 2 dimentions
-        self.train_codes = np.squeeze(self.train_codes)
-        self.test_codes = np.squeeze(self.test_codes)
-        self.train_labels = np.squeeze(self.train_labels)
-        self.test_labels = np.squeeze(self.test_labels)
+        self.train_codes = np.squeeze(np.load('../data/train_codes.npy'))
+        self.test_codes = np.squeeze(np.load('../data/test_codes.npy'))
+        self.train_labels = np.squeeze(np.load('../data/train_labels.npy'))
+        self.test_labels = np.squeeze(np.load('../data/test_labels.npy'))
 
     def train(self):
         start_time = time.time()
@@ -46,8 +43,6 @@ class SVMClassifier():
         joblib.dump(self.model, self.classifier_filename)
         logger.info('Completed in {} seconds'.format(time.time() - start_time))
         logger.info('Saved classifier model to file "%s"' % self.classifier_filename)
-
-
 
     def evaluate(self):
         loaded_model = joblib.load(self.classifier_filename)
@@ -58,7 +53,7 @@ class SVMClassifier():
         np.save('../model/svm_prediction_proba.npy', predictions)
 
         logger.info("accuracy score {:.4f}".format(loaded_model.score(self.test_codes, self.test_labels)))
-        test_idcs = np.load('../model/svm_test_labels_idcs.npy')
+        test_idcs = np.load('../data/test_labels_idcs.npy')
         # what went wrong
         for test_id in range(len(self.test_labels)):
             if predictions[test_id] != self.test_labels[test_id]:
@@ -73,10 +68,8 @@ class SVMClassifier():
         errate, thres = equal_error_rate(predict_probs, self.test_labels)
         print("equal error rate: ", errate)
         print("threshold: ", thres)
-        #multiclass_roc_plot(predicted_labels, self.test_labels, len(np.unique(self.test_labels)))
+
         #multiclass_roc_plot(predictions,self.test_labels,len(np.unique(self.test_labels)))
-
-
 
 if __name__ == '__main__':
     clr = SVMClassifier('/Volumes/ML/ColorFeret_Test/','../model/svm_model.npy',1208, min_images_per_label=5)

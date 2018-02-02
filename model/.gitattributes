@@ -1,1 +1,2 @@
 svm_model filter=lfs diff=lfs merge=lfs -text
+svm_model.npy filter=lfs diff=lfs merge=lfs -text
