@@ -110,17 +110,21 @@ class Features():
 
         ss = StratifiedShuffleSplit(n_splits=1,test_size = 0.2, random_state=0)
         train_idcs, test_idcs = next(ss.split(features, labels))
-        np.save('../model/svm_test_labels_idcs.npy',labels[test_idcs])
+        np.save('../data/test_labels_idcs.npy',labels[test_idcs])
+        np.save('../data/test_codes.npy', features[test_idcs])
+        np.save('../data/test_labels.npy', labels[test_idcs])
+        np.save('../data/training_codes.npy', features[train_idcs])
+        np.save('../data/training_labels.npy', labels[train_idcs])
         return features[train_idcs],labels[train_idcs],features[test_idcs],labels[test_idcs],test_idcs
 
 
 # generate bottleneck features offline
 if __name__ == '__main__':
-    feature = Features('/Volumes/ML/ColorFeret_Test/', 224, 224, 1208,face_crop=False, min_images_per_label=3, features_dir='../data/')
+    feature = Features('/Volumes/ML/ColorFeret_Test/', 224, 224, 1208,face_crop=False, min_images_per_label=5, features_dir='../data/')
     #codes = feature.get_feature_codes()
     #labels =feature.get_labels()
-    codes = np.load('../data/bottleneck_features.npy')
-    labels = np.load('../data/labels.npy')
+    codes = np.load('../data/bottleneck_features_face_5min.npy')
+    labels = np.load('../data/labels_5min.npy')
     print(labels.shape)
     print(codes.shape)
     train_data,train_labels,test_data,test_labels,_ = feature.get_train_test_set(codes,labels)

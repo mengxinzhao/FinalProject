@@ -14,6 +14,7 @@ from scipy import interp
 from itertools import cycle
 import logging
 from collections import OrderedDict
+import pickle
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -215,7 +216,15 @@ def multiclass_roc_plot(predicted_labels, true_labels, num_class):
     plt.show()
 
 def test_metrics(predict_probs,true_labels,num_class):
-    multiclass_roc_plot
+    print("accuracy: {0:.4f}".format(accuracy(predict_probs,true_labels)))
+    print("false_accept: {0:.4f}".format(false_accept(predict_probs, true_labels)))
+    print("false_reject: {0:.4f}".format(false_reject(predict_probs, true_labels)))
+    det_curve_plot(predict_probs,true_labels)
+    errate , thres= equal_error_rate(predict_probs, true_labels)
+    print("equal error rate: ",errate)
+    print("threshold: ",thres )
+    predicted_labels = np.argmax(predict_probs,axis=1)
+    multiclass_roc_plot(predicted_labels, true_labels,num_class)
 
 if __name__ == '__main__':
     num_class = 15
