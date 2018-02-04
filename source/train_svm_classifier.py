@@ -36,6 +36,8 @@ class SVMClassifier():
         self.train_labels = np.squeeze(np.load('../data/train_labels.npy'))
         self.test_labels = np.squeeze(np.load('../data/test_labels.npy'))
 
+        logger.info("train codes shape {}".format(self.train_codes.shape))
+        logger.info("train label shape {}".format(self.train_labels.shape))
     def train(self):
         start_time = time.time()
         logger.info('Training start...' )
@@ -74,6 +76,4 @@ class SVMClassifier():
 if __name__ == '__main__':
     clr = SVMClassifier('/Volumes/ML/ColorFeret_Test/','../model/svm_model.npy',1208, min_images_per_label=5)
     clr.prepare()
-    clr.train()
-    clr.evaluate()
 
