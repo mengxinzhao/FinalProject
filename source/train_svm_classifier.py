@@ -17,11 +17,9 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 class SVMClassifier():
-    def __init__(self,dataset_path, classfier_filename,num_class,min_images_per_label=5 ):
-        self.feature = Features(dataset_path, 224, 224, num_class,
-                                face_crop=False, min_images_per_label = min_images_per_label, features_dir='../data/')
+    def __init__(self,dataset_path, classfier_filename,min_images_per_label=5 ):
+        self.feature = Features(dataset_path, 224, 224, face_crop=False, min_images_per_label = min_images_per_label, features_dir='../data/')
 
-        self.num_class = num_class
         svc = LinearSVC(penalty='l2', loss='squared_hinge', dual=False, tol=1e-4,
                     C=1.0, multi_class='ovr', fit_intercept=True,
                     intercept_scaling=1, class_weight=None, verbose=False,
@@ -31,13 +29,14 @@ class SVMClassifier():
 
 
     def prepare(self):
-        self.train_codes = np.squeeze(np.load('../data/train_codes.npy'))
-        self.test_codes = np.squeeze(np.load('../data/test_codes.npy'))
-        self.train_labels = np.squeeze(np.load('../data/train_labels.npy'))
-        self.test_labels = np.squeeze(np.load('../data/test_labels.npy'))
+        self.train_codes = np.squeeze(np.load('../data/lfw_train_codes.npy'))
+        self.test_codes = np.squeeze(np.load('../data/lfw_test_codes.npy'))
+        self.train_labels = np.squeeze(np.load('../data/lfw_train_labels.npy'))
+        self.test_labels = np.squeeze(np.load('../data/lfw_test_labels.npy'))
 
         logger.info("train codes shape {}".format(self.train_codes.shape))
         logger.info("train label shape {}".format(self.train_labels.shape))
+
     def train(self):
         start_time = time.time()
         logger.info('Training start...' )
@@ -55,7 +54,7 @@ class SVMClassifier():
         np.save('../model/svm_prediction_proba.npy', predictions)
 
         logger.info("accuracy score {:.4f}".format(loaded_model.score(self.test_codes, self.test_labels)))
-        test_idcs = np.load('../data/test_labels_idcs.npy')
+        test_idcs = np.load('../data/lfw_test_labels_idcs.npy')
         # what went wrong
         for test_id in range(len(self.test_labels)):
             if predictions[test_id] != self.test_labels[test_id]:
@@ -74,6 +73,8 @@ class SVMClassifier():
         #multiclass_roc_plot(predictions,self.test_labels,len(np.unique(self.test_labels)))
 
 if __name__ == '__main__':
-    clr = SVMClassifier('/Volumes/ML/ColorFeret_Test/','../model/svm_model.npy',1208, min_images_per_label=5)
+    clr = SVMClassifier('/Volumes/ML/lfw/','../model/svm_model.npy', min_images_per_label=10)
     clr.prepare()
+    clr.train()
+    clr.evaluate()
 
