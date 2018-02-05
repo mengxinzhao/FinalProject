@@ -58,8 +58,7 @@ class SVMClassifier():
         # what went wrong
         for test_id in range(len(self.test_labels)):
             if predictions[test_id] != self.test_labels[test_id]:
-                ## label number starts from 1 in the colorferet
-                logger.info("data id  {} predicted label {}, true label {}".format(test_idcs[test_id], predictions[test_id]+1,self.test_labels[test_id]+1))
+                logger.info("data id  {} predicted label {}, true label {}".format(test_idcs[test_id], predictions[test_id],self.test_labels[test_id]))
         logger.info("weighted precision score {:.4f}".format(precision_score(self.test_labels,predictions,average='weighted')))
         logger.info("weighted recall score {:.4f}".format(recall_score(self.test_labels,predictions,average='weighted')))
         print("accuracy: {0:.4f}".format(accuracy(predict_probs, self.test_labels)))
