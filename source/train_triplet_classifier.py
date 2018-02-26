@@ -125,9 +125,9 @@ def query_top_match(query_embedding,anchor_embedings,anchor_labels, thres, top_k
         else:
             match = unique_labels[match_idx]
         match = np.asscalar(match)  # convert 1x1 array to a numbers
-        return match, match
+        return match
     else:
-        return [], []
+        return []
 
 
 def generate_anchor_positive(ids,batch_num=128):
@@ -630,45 +630,14 @@ class TripletClassifier():
         test_embeddings = self.model.predict([test_codes,test_codes,test_codes],batch_size = 128)
         test_embeddings = test_embeddings[:,0:embedding_num]
         match_labels_thres = []
-        # for query_embedding in test_embeddings:
-        #     dist = l2_distance(query_embedding[None, :], anchor_embeddings)
-        #     sorted_idcs = np.array(sorted(range(len(dist)), key=lambda k: dist[k]))
-        #     top_k_idcs = sorted_idcs[:top_k]
-        #     top_k_match = []
-        #     # print("top_k_labels:",np.array(anchor_labels)[top_k_idcs])
-        #     # print("top_k_dist",dist[top_k_idcs])
-        #     # print("thres: ",np.array(anchor_thres)[top_k_idcs])
-        #     for cand in top_k_idcs:
-        #         if dist[cand] < anchor_thres[cand]:
-        #             top_k_match.append(anchor_labels[cand])
-        #     #get the majority voted labels in top_k possible matching labels
-        #     if len(top_k_match )>0:
-        #         unique_labels,first_idcs, counts = np.unique(np.array(top_k_match), return_counts=True,return_index=True)
-        #         # print("label candidate:",unique_labels)
-        #         # print("label size", len(unique_labels))
-        #         if len(unique_labels) >0 :
-        #             match_idx = np.where(counts==counts.max())
-        #             if  np.asarray(match_idx).size >=2:  #tied match
-        #                 # the first occuring one in the top_k . It has the smallest distance
-        #                 match_idx = np.argsort(first_idcs[match_idx])
-        #                 match = unique_labels[match_idx[0]]
-        #                 match = np.ravel(match)
-        #             else:
-        #                 match = unique_labels[match_idx]
-        #             match_labels_thres.append(match)
-        #     else:
-        #         match_labels_thres.append([])
 
-
-        # distance matching works better in small set
         for query_embedding  in test_embeddings:
-            #match_thres, match = query_top_match(query_embedding,anchor_embeddings,np.array(anchor_labels),self.thres,top_k=5)
-            match_thres, match = query_top_match(query_embedding,anchor_embeddings,anchor_labels,anchor_thres,top_k=1)
+            match_thres = query_top_match(query_embedding,anchor_embeddings,anchor_labels,anchor_thres,top_k=1)
             match_labels_thres.append(match_thres)
 
         return match_labels_thres
 
-    def generate_labels_embeddings_threshold_2(self):
+    def generate_labels_embeddings_threshold(self):
         self.model.load_weights(self.classifier_filename)
         #embeddings = np.load(os.path.join(self.data_dir, 'embeddings.npy'))
         #y_labels = np.load(os.path.join(self.data_dir, 'embedding_labels.npy'))
@@ -687,19 +656,9 @@ class TripletClassifier():
 
             for i in same_labels_ids:
                 for j in same_labels_ids:
-                    #neg_dist.append(l2_distance(embeddings[j][None,:], embeddings[i][None,:]))
                     pos_dist.append(l2_distance(embeddings[j][None,:], embeddings[i][None,:]))
-            # dist_pos = l2_distance(embeddings[same_labels_ids[1:]],embeddings[same_labels_ids[0]])
-            # dist_neg = l2_distance(embeddings[ng_labels_ids], embeddings[same_labels_ids[0]])
-            # positive = np.array(dist_pos,dtype='double')
-            # negative = np.array(dist_neg,dtype='double')
-            # thres = bob.measure.eer_threshold(negative,positive)
-            #label_thres.append(np.min(negative))
             label_thres.append(np.mean(pos_dist)  )
             labels.append(id)
-            #label_thres.append(np.mean(positive) - 0.4 )
-        #label_embeddings = np.vstack(label_embeddings)
-        #return label_embeddings,np.array(labels),np.mean(label_thres)
         return embeddings,y_labels,np.mean(label_thres)
 
 
@@ -709,7 +668,7 @@ class TripletClassifier():
         true_reject = 0.0
         false_reject = 0.0
 
-        anchor_embeddings, anchor_labels, anchor_thres = self.generate_labels_embeddings_threshold_2()
+        anchor_embeddings, anchor_labels, anchor_thres = self.generate_labels_embeddings_threshold()
         # self.thres = np.mean(anchor_thres) 
         logger.info("Distance threshold {0:.4f}:".format(anchor_thres) )
 
@@ -896,7 +855,7 @@ if __name__=='__main__':
     clr = TripletClassifier(args.file_name,data_dir=args.input_dir,num_embeddings = embedding_num)
     clr.prepare()
     
-    clr.train()
+    #clr.train()
     clr.evaluate()
     clr.train_history_visual()
 
