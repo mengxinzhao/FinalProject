@@ -5,26 +5,32 @@ import logging
 import os
 from keras.applications.resnet50  import ResNet50
 from keras.applications.resnet50 import preprocess_input
+from keras.models import Model
 from tqdm import tqdm
-from sklearn.model_selection import StratifiedShuffleSplit
+from sklearn.model_selection import StratifiedShuffleSplit,train_test_split
 
 from preprocess import preprocess_image, resize_image
-from colorferet import get_dataset
-from lfw import get_lfw_dataset
+from lfw import get_lfw_dataset,get_random_lfw
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 
 class Features():
-    def __init__(self, dataset_path, img_width=224, img_height=224, face_crop = True, min_images_per_label=10, features_dir='../data'):
+    def __init__(self, dataset_path, img_width=224, img_height=224, face_crop = True,
+                 min_images_per_label=10, max_images_per_label = 1000, mode='softmax',features_dir='../data'):
         self.img_width = img_width
         self.img_height = img_height
-        self.dataset = get_lfw_dataset(dataset_path,min_images_per_label)
-        self.model = ResNet50(include_top=False,weights='imagenet')
+        self.dataset = get_lfw_dataset(dataset_path,min_images_per_label,max_images_per_label)
+        self.random_draw_test = get_random_lfw(dataset_path,200, min_images_per_label/2)
+        if mode == 'softmax':
+            self.model = ResNet50(include_top=False, weights='imagenet')
+        else:
+            resnet_model = ResNet50(include_top=False, weights='imagenet')
+            self.model = Model(inputs=resnet_model.input,outputs=resnet_model.get_layer('activation_49').output)
+        self.model.summary()
         self.batch_size = 128
-        self.num_classes = len(self.dataset)
         self.face_crop = face_crop
         self.features_dir = features_dir
 
@@ -33,8 +39,9 @@ class Features():
         preped_img = None
         if self.face_crop == True:
             preped_img = preprocess_image(image_path, None, crop_dim=224)
-
-        if preped_img is None:
+            if preped_img is None:
+                return []
+        else:
             #  use the whole picture and first resize the image reserving its width/heigh ratio and
             ## if one side of short of 224 padding
             preped_img = resize_image(image_path, None, size=224,random_padding_border_color = True)
@@ -43,48 +50,58 @@ class Features():
 
     def paths_to_tensor(self,img_paths):
         # print( tqdm(img_paths))
-        list_of_tensors = [self.path_to_tensor(img_path) for img_path in img_paths]
-        return np.vstack(list_of_tensors)
+        list_of_tensors = []
+        for img_path in img_paths:
+            tensor = self.path_to_tensor(img_path)
+            if len(tensor ) > 0:
+                list_of_tensors.append(tensor)
+        if len(list_of_tensors) >0:
+            list_of_tensors =  np.vstack(list_of_tensors)
+            return list_of_tensors
+        else:
+            return []
 
-    def get_labels(self):
-        """
-        :return: ont-hot encoded labels
-        """
-        labels = [np.full((len(id.image_paths), 1),id.id) for id in self.dataset]
-        labels = np.vstack(labels)
-        file_name = os.path.join(self.features_dir,'labels_10min.npy')
-        np.save(open(file_name, 'wb'),labels)
-        return labels
-
-    ## TODO: implement data generator to continously provide tensors and feed the model
-    def get_feature_codes(self):
+    def get_codes(self,dataset,feature_file_name, label_file_name):
         """
         :return: feature codes array for all pictures and labels array
         """
         features = []
-        logger.info("{} ids in the dataset".format(len(self.dataset)))
-
+        logger.info("{} ids in the dataset".format(len(dataset)))
+        labels = []
         def walk(data):
             # Walk through each id in a data set
             for id in data:
                     yield id
 
-        for id in tqdm(walk(self.dataset), total = len(self.dataset),unit='id'):
+        for id in tqdm(walk(dataset), total = len(dataset),unit='id'):
             tensor_batch = self.paths_to_tensor(id.image_paths)
+            if len(tensor_batch)==0:
+                continue
+            logger.info("tensor  shape {}".format(tensor_batch.shape))
             inputs_batch = preprocess_input(tensor_batch)
-            features_batch = self.model.predict(inputs_batch, batch_size=self.batch_size)
+            features_batch = self.model.predict(inputs_batch)#
             # this has effect that it flattens the dimension (num_sample,1,1,2048) to (num_sample,1,2048)
             #features_batch = np.vstack(features_batch)
+            label_batch = np.full((len(inputs_batch), 1), id.id)
+            logger.info("features_batch  shape {}".format(features_batch.shape))
+            logger.info("label_batch  shape {}".format(label_batch.shape))
             features.append(features_batch)
+            labels.append(label_batch)
 
         features = np.vstack(features)
+        labels = np.vstack(labels)
         #logger.info("features_batch after vstack {}".format(features_batch.shape))
         # weird np.save can't do incremental save. It's lucky here that the vector output
-        # is 2048 per features and total images are about 13k. If there is million images,
+        # is 2048 per features and total images are about 5k. If there is million images,
         # the array here is too large
-        file_name = os.path.join(self.features_dir, 'bottleneck_features_face_10min.npy')
+        file_name = os.path.join(self.features_dir, feature_file_name)
         np.save(open(file_name, 'wb'),features)
-        return features
+
+        file_name = os.path.join(self.features_dir,label_file_name)
+        np.save(open(file_name, 'wb'),labels)
+
+
+        return features,labels
 
     def get_train_test_set(self,features_path, labels_path):
         """
@@ -109,27 +126,55 @@ class Features():
 
         ss = StratifiedShuffleSplit(n_splits=1,test_size = 0.2, random_state=0)
         train_idcs, test_idcs = next(ss.split(features, labels))
-        np.save('../data/lfw_test_labels_idcs.npy',test_idcs)
-        np.save('../data/lfw_test_codes.npy', features[test_idcs])
-        np.save('../data/lfw_test_labels.npy', labels[test_idcs])
-        np.save('../data/lfw_train_codes.npy', features[train_idcs])
-        np.save('../data/lfw_train_labels.npy', labels[train_idcs])
+
+        file_name = os.path.join(self.features_dir, 'test_labels_idcs.npy')
+        np.save(file_name,test_idcs)
+
+        file_name = os.path.join(self.features_dir, 'test_codes.npy')
+        np.save(file_name,features[test_idcs])
+
+        file_name = os.path.join(self.features_dir, 'test_labels.npy')
+        np.save(file_name,labels[test_idcs])
+
+        file_name = os.path.join(self.features_dir, 'train_codes.npy')
+        np.save(file_name,features[train_idcs])
+
+        file_name = os.path.join(self.features_dir, 'train_labels.npy')
+        np.save(file_name,labels[train_idcs])
+
         return features[train_idcs],labels[train_idcs],features[test_idcs],labels[test_idcs],test_idcs
 
 
 # generate bottleneck features offline
 if __name__ == '__main__':
-    feature = Features('/Volumes/ML/lfw/', 224, 224, face_crop=True, min_images_per_label=10,
-                       features_dir='../data/')
-    labels =feature.get_labels()
+    import argparse
+    logging.basicConfig(level=logging.INFO)
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument('--input-dir', type=str, action='store', default='data', dest='input_dir')
+    parser.add_argument('--output-dir', type=str, action='store', default='output', dest='output_dir')
+    parser.add_argument('--min', type=int, action='store', default=10, dest='min_images_per_label',
+                        help='min images per label')
+    parser.add_argument('--max', type=int, action='store', default=1000, dest='max_images_per_label',
+                        help='max images per label')
+    parser.add_argument('--mode', type=str, action='store', default='softmax', dest='mode',
+                        help='generate bottleneck for softmax classifier or triplet loss classifier')
+
+    args = parser.parse_args()
+
+    if os.path.exists(args.input_dir) == False:
+        logger.error("input {} doesn't exist!".format(args.input_dir))
+    if os.path.exists(args.output_dir) == False:
+        os.makedirs(args.output_dir)
+
+    feature = Features(args.input_dir, 224, 224, face_crop=True, min_images_per_label=args.min_images_per_label,
+                       max_images_per_label = args.max_images_per_label, mode = args.mode,
+                        features_dir=args.output_dir)
+    codes, labels = feature.get_codes(feature.dataset, feature_file_name ='bottleneck_features.npy',label_file_name='labels.npy')
     print(labels.shape)
-    codes = feature.get_feature_codes()
     print(codes.shape)
-    codes = np.load('../data/bottleneck_features_face_10min.npy')
-    labels = np.load('../data/labels_10min.npy')
     train_data,train_labels,test_data,test_labels, test_idcs= feature.get_train_test_set(codes,labels)
     print(train_data.shape,train_labels.shape,test_data.shape,test_labels.shape)
-    print(test_idcs)
 
-
-
+    codes, labels = feature.get_codes(feature.random_draw_test, feature_file_name ='random_draw_codes.npy',label_file_name='random_draw_labels.npy')
+    print(labels.shape)
+    print(codes.shape)

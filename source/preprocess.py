@@ -12,7 +12,7 @@ from align_dlib import AlignDlib
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.WARNING)
+logger.setLevel(logging.INFO)
 
 align_dlib = AlignDlib(os.path.join(os.path.dirname(__file__), 'shape_predictor_68_face_landmarks.dat'))
 
@@ -24,7 +24,7 @@ def test_process(input_dir, output_dir, crop_dim):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    image_paths = glob.glob(os.path.join(input_dir, '*.png'))
+    image_paths = glob.glob(os.path.join(input_dir, '*.jpg'))
     logger.info(input_dir)
     for index, image_path in enumerate(image_paths):
         image_name = os.path.basename(image_path)
@@ -44,7 +44,7 @@ def test_resize(input_dir, output_dir, size):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    image_paths = glob.glob(os.path.join(input_dir, '*.png'))
+    image_paths = glob.glob(os.path.join(input_dir, '*.jpg'))
     logger.info(input_dir)
     for index, image_path in enumerate(image_paths):
         image_name = os.path.basename(image_path)
@@ -82,6 +82,7 @@ def resize_image(input_path, output_path, size, random_padding_border_color = Fa
         logger.info('resize to {} and pad to {}'.format(img.shape, padded.shape))
         if debug == True:
             if output_path is not None:
+                padded = cv2.cvtColor(padded, cv2.COLOR_BGR2RGB)
                 cv2.imwrite(output_path, padded)
         return padded
     else:
@@ -190,5 +191,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    #test_process(args.input_dir, args.output_dir, args.crop_dim)
-    test_resize(args.input_dir, args.output_dir, 224)
+    test_process(args.input_dir, args.output_dir, args.crop_dim)
+    #test_resize(args.input_dir, args.output_dir, 224)
