@@ -126,7 +126,8 @@ class SoftmaxClassifier():
                                                                       (-1, len(predict_probs[idx]))),threshold=0.5))
              else:
                  predicts.append(np.array([]))
-        return np.array(predicts),predict_probs
+        #return np.array(predicts)
+        return np.array(predicts)
 
     def determin_threshold(self):
         """
@@ -150,15 +151,31 @@ class SoftmaxClassifier():
         self.thres = self.determin_threshold()
         logger.info("threshold {}".format(self.thres))
         logger.info("Testing all authorized labels...")
-        predictions_thres, predict_probs= self.predict(self.test_codes,top_k=1)
+        predictions_thres = self.predict(self.test_codes,top_k=1)
         
         all_test = 0.0
+        errors_closeset = {}
+        errors_openset = {}
+        label_count = {}
+        errors_closeset_count = {}
+        errors_openset_count = {}
+        train_labels,counts = np.unique(self.train_labels,return_counts=True)
+        for test_label,count in zip(train_labels,counts):
+            errors_closeset[test_label] = 0
+            errors_openset[test_label] = 0
+            label_count[test_label] = count
+            errors_closeset_count[count] = 0
+            errors_openset_count[count] = 0
+
+            
         for test_id in range(len(self.test_labels)):
             if np.asarray(np.where(predictions_thres[test_id] == self.test_labels[test_id])).size == 0:
                 logger.info("data id  {} false rejected as label {}, true label {}"
                             .format(self.test_idcs[test_id], predictions_thres[test_id], self.test_labels[test_id]))
                 false_reject += 1.0
-
+                # what id is mistaken for what
+                errors_closeset[self.test_labels[test_id]] += 1
+                errors_closeset_count[label_count[self.test_labels[test_id]] ] += 1
             else:
                 true_accept += 1.0
             all_test += 1.0
@@ -179,15 +196,14 @@ class SoftmaxClassifier():
                 label_seen +=tmp
         logger.info("{} out of {} labels are authorized.".format(label_seen, self.random_draw_label.size))
 
-        # some are in the system some are not authorized
-        predictions_thres, predictions = self.predict(self.random_draw_codes)
+        # not in the system
+        predictions_thres = self.predict(self.random_draw_codes)
 
         true_accept = 0.0
         false_accept = 0.0
         true_reject = 0.0
         false_reject = 0.0
         all_test = 0.0
-
         # what went wrong
         for test_id in range(len(self.random_draw_codes)):
             if (self.random_draw_label[test_id] == self.train_labels).any() == True:
@@ -206,29 +222,59 @@ class SoftmaxClassifier():
                     false_accept += 1.0
                     logger.info("data id  {} false accepted as label {}, none autherized label {}"
                                 .format(test_id, predictions_thres[test_id], self.random_draw_label[test_id]))
+                    errors_openset[np.asscalar(predictions_thres[test_id])] += 1.0
+                    errors_openset_count[label_count[self.test_labels[test_id]] ] += 1
                 else:
                     true_reject += 1.0
                     logger.info("data id  {} rejected label {}, none autherized"
                                 .format(test_id, self.random_draw_label[test_id]))
             all_test += 1.0
 
-        logger.info("false_accept: {0:.4f}".format(false_accept))
-        logger.info("true_accept: {0:.4f}".format(true_accept))
-        logger.info("false_reject: {0:.4f}".format(false_reject))
-        logger.info("true_reject: {0:.4f}".format(true_reject))
+        # logger.info("false_accept: {0:.4f}".format(false_accept))
+        # logger.info("true_accept: {0:.4f}".format(true_accept))
+        # logger.info("false_reject: {0:.4f}".format(false_reject))
+        # logger.info("true_reject: {0:.4f}".format(true_reject))
 
 
         FAR = false_accept / all_test
         TR = true_reject/all_test
         logger.info("true_rejection: {0:.4f}".format(TR))
         logger.info("false_acceptance: {0:.4f}".format(FAR))
+        # print(errors_closeset)
+        # print(errors_openset)
+        # print(errors_closeset_count)
+        # print(errors_openset_count)
+        # draw 
+        # plt.figure(figsize=(5,3))
+        # plt.subplot(1, 2, 1)
+        # plt.bar(list(errors_closeset.keys()),list(errors_closeset.values()),label='closeset')
+        # plt.bar(list(errors_openset.keys()), list(errors_openset.values()),label='openset')
+        # plt.title('errors one labels')
+        # plt.ylabel('error count')
+        # plt.xlabel('labels')
+        # plt.legend(['closeset', 'openset'], loc='lower right')
+        for key,value in list(errors_closeset_count.items()):
+            if value == 0.0:
+                del errors_closeset_count[key]
 
+        for key,value in list(errors_openset_count.items()):
+            if value == 0.0:
+                del errors_openset_count[key]
+
+        plt.subplot(1, 1, 1)
+        plt.scatter(list(errors_closeset_count.keys()), list(errors_closeset_count.values()),marker='x')
+        plt.scatter(list(errors_openset_count.keys()),list(errors_openset_count.values()), marker='.')
+        plt.title('errors vs pictures per labels')
+        plt.ylabel('error count')
+        plt.xlabel('picture count per label')
+        plt.legend(['closeset', 'openset'], loc='upper right')
+        plt.show()
 
         self.test_labels = np.vstack((self.test_labels[:,None], self.random_draw_label[:,None]))
         self.test_codes = np.vstack((self.test_codes, self.random_draw_codes))
 
         # combine test_label and random draw
-        predictions_thres,_ = self.predict(self.test_codes)
+        predictions_thres = self.predict(self.test_codes)
         # what went wrong
         true_accept = 0.0
         false_accept = 0.0
@@ -257,10 +303,10 @@ class SoftmaxClassifier():
                     logger.info("data id  {} rejected label {}, none autherized"
                                 .format(test_id, self.test_labels[test_id]))
 
-        logger.info("false_accept: {0:.4f}".format(false_accept))
-        logger.info("true_accept: {0:.4f}".format(true_accept))
-        logger.info("false_reject: {0:.4f}".format(false_reject))
-        logger.info("true_reject: {0:.4f}".format(true_reject))
+        # logger.info("false_accept: {0:.4f}".format(false_accept))
+        # logger.info("true_accept: {0:.4f}".format(true_accept))
+        # logger.info("false_reject: {0:.4f}".format(false_reject))
+        # logger.info("true_reject: {0:.4f}".format(true_reject))
 
         if false_accept +true_accept ==0 :
             FAR = 0.0

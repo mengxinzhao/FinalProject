@@ -28,7 +28,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-batch_num =  64
+batch_num =  128
 embedding_num  = 64
 alpha = 0.2
 embeddings = []
@@ -40,9 +40,9 @@ def step_decay(epoch):
     :param epoch: epoch number
     :return: learning rate schedule
     """
-    initial_lrate = 0.0005
+    initial_lrate = 0.0001
     drop = 0.9
-    epochs_drop = 20.0
+    epochs_drop = 50.0
     lrate = initial_lrate * math.pow(drop, math.floor((1+epoch)/epochs_drop))
 
     if lrate < 0.00001:
@@ -527,8 +527,7 @@ class TripletClassifier():
         x = Flatten(name='flatten')(input)
         x = Dropout(0.5)(x)
         x = Dense(self.num_embeddings, kernel_initializer= TruncatedNormal(stddev=0.05),
-                 use_bias=True, bias_initializer='zeros',
-                name='embeddings', kernel_regularizer=l2(0.001))(x)
+                 use_bias=False, name='embeddings', kernel_regularizer=l2(0.001))(x)
         x = Lambda(lambda  x: K.l2_normalize(x,axis=1))(x)
 
         branch = Model(inputs=input,outputs=x)
@@ -544,7 +543,7 @@ class TripletClassifier():
 
         self.model = Model([anchors, positives,negatives], merged)
         self.model.compile(loss= triplet_loss,
-                           optimizer = Adam(lr=0.0, beta_1=0.9, beta_2=0.999, epsilon=1e-08),
+                           optimizer = Adam(lr=0.0001, beta_1=0.9, beta_2=0.999, epsilon=1e-08),
                             metrics=[accuracy])
         self.model.summary()
 
@@ -569,7 +568,7 @@ class TripletClassifier():
         tbCallBack = TensorBoard(log_dir='./logs',batch_size= batch_num, histogram_freq=0, write_graph=True,
                                                  write_images=True, write_grads = True)
         tbCallBack.set_model(self.model)
-        lrate = LearningRateScheduler(step_decay)
+        #lrate = LearningRateScheduler(step_decay)
 
         train_data_params = {
             'batch_size':batch_num,
@@ -588,7 +587,7 @@ class TripletClassifier():
                         steps_per_epoch=(len(self.y_labels)+ batch_num-1) // batch_num,
                         epochs=1000,
                         verbose=1,
-                        callbacks=[checkpointer,early_stopping,tbCallBack,lrate],
+                        callbacks=[checkpointer,early_stopping,tbCallBack],#,lrate],
                         validation_data=val_data_generator,
                         validation_steps = (val_batch_size * len(np.unique(self.val_labels))+ batch_num-1)//batch_num,
                         use_multiprocessing = False)
@@ -647,17 +646,25 @@ class TripletClassifier():
         label_embeddings = []
         label_thres = []
         labels = []
-        neg_dist = []
-        pos_dist = []
+
         for id in np.unique(y_labels):
             same_labels_ids = np.where(y_labels == id )[0]
             ng_labels_ids = np.where(y_labels !=id )[0]
-            label_embeddings.append(embeddings[same_labels_ids].mean(axis=0))
-
+            #label_embeddings.append(embeddings[same_labels_ids].mean(axis=0))
+            pos_dist = []
+            neg_dist = []
+            for i,j in itertools.combinations(same_labels_ids,2):
+                pos_dist.append(l2_distance(embeddings[i][None,:], embeddings[j][None,:]))
+            #print("id:",id,pos_dist)
             for i in same_labels_ids:
-                for j in same_labels_ids:
-                    pos_dist.append(l2_distance(embeddings[j][None,:], embeddings[i][None,:]))
-            label_thres.append(np.mean(pos_dist)  )
+                for j in ng_labels_ids:
+                    neg_dist.append(l2_distance(embeddings[i][None,:], embeddings[j][None,:]))
+            pos_dist = np.array(pos_dist,dtype='double').ravel()
+            neg_dist = np.array(neg_dist,dtype='double').ravel()
+            thres = bob.measure.eer_threshold(neg_dist,pos_dist)
+            # print("id: ",id, "thres :", thres, "postivie: ",pos_dist.mean(), pos_dist.min(),pos_dist.max(), "negative:",
+            #     neg_dist.mean(), neg_dist.min(),neg_dist.max())
+            label_thres.append(thres)
             labels.append(id)
         return embeddings,y_labels,np.mean(label_thres)
 
@@ -720,11 +727,26 @@ class TripletClassifier():
         predictions_thres = self.predict(self.test_codes,anchor_embeddings,anchor_labels, anchor_thres,top_k=1)
 
         all_test = 0.0
+        errors_closeset = {}
+        errors_openset = {}
+        label_count = {}
+        errors_closeset_count = {}
+        errors_openset_count = {}
+        train_labels,counts = np.unique(self.train_labels,return_counts=True)
+        for test_label,count in zip(train_labels,counts):
+            errors_closeset[test_label] = 0
+            errors_openset[test_label] = 0
+            label_count[test_label] = count
+            errors_closeset_count[count] = 0
+            errors_openset_count[count] = 0
+
         for test_id in range(len(self.test_labels)):
             if np.asarray(np.where(predictions_thres[test_id] == self.test_labels[test_id])).size==0:
                 logger.info("data id  {} false rejected as label {}, true label {}"
                             .format(self.test_idcs[test_id],predictions_thres[test_id],self.test_labels[test_id]))
                 false_reject += 1.0
+                errors_closeset[self.test_labels[test_id]] += 1
+                errors_closeset_count[label_count[self.test_labels[test_id]] ] += 1
 
             else:
                 true_accept += 1.0
@@ -760,6 +782,8 @@ class TripletClassifier():
                     false_reject += 1.0
                     logger.info("data id  {} false rejected as label {}, true label {}"
                                 .format(test_id, predictions_thres[test_id], self.random_draw_label[test_id]))
+                    errors_closeset[self.test_labels[test_id]] += 1
+                    errors_closeset_count[label_count[self.test_labels[test_id]] ] += 1
                 else:
                     true_accept += 1.0
                     logger.info("data id  {} accepted label  {} true label {} "
@@ -770,6 +794,8 @@ class TripletClassifier():
                     false_accept += 1.0
                     logger.info("data id  {} false accepted as label {}, none autherized label {}"
                                 .format(test_id, predictions_thres[test_id], self.random_draw_label[test_id]))
+                    errors_openset[predictions_thres[test_id]] += 1.0
+                    errors_openset_count[label_count[self.test_labels[test_id]] ] += 1
                 else:
                     true_reject += 1.0
                     logger.info("data id  {} rejected label {}, none autherized"
@@ -785,6 +811,34 @@ class TripletClassifier():
         TR = true_reject/all_test
         logger.info("true_rejection: {0:.4f}".format(TR))
         logger.info("false_acceptance: {0:.4f}".format(FAR))
+
+        for key,value in list(errors_closeset_count.items()):
+            if value == 0.0:
+                del errors_closeset_count[key]
+
+        for key,value in list(errors_openset_count.items()):
+            if value == 0.0:
+                del errors_openset_count[key]
+
+        plt.figure(figsize=(5,3))
+        # plt.subplot(1, 2, 1)
+        # plt.scatter(list(errors_closeset.keys()),list(errors_closeset.values()),marker='x')
+        # plt.scatter(list(errors_openset.keys()), list(errors_openset.values()),marker='.')
+        # plt.title('errors per labels')
+        # plt.ylabel('error count')
+        # plt.xlabel('labels')
+        # plt.legend(['closeset', 'openset'], loc='lower right')
+
+
+        plt.subplot(1, 1, 1)
+        plt.scatter(list(errors_closeset_count.keys()), list(errors_closeset_count.values()),marker='x')
+        plt.scatter(list(errors_openset_count.keys()),list(errors_openset_count.values()), marker='.')
+        plt.title('errors vs pictures per labels')
+        plt.ylabel('error count')
+        #plt.ylim((1.0,100))
+        plt.xlabel('picture count per label')
+        plt.legend(['closeset', 'openset'], loc='upper right')
+        plt.show()
 
         # combine test_label and random draw
         self.test_labels = np.vstack((self.test_labels[:,None], self.random_draw_label[:,None]))
@@ -815,6 +869,7 @@ class TripletClassifier():
                     false_accept += 1.0
                     logger.info("data id  {} false accepted as label {}, none autherized label {}"
                                 .format(test_id, predictions_thres[test_id], self.test_labels[test_id]))
+
                 else:
                     true_reject += 1.0
                     logger.info("data id  {} rejected label {}, none autherized"
@@ -857,5 +912,5 @@ if __name__=='__main__':
     
     #clr.train()
     clr.evaluate()
-    clr.train_history_visual()
+    #clr.train_history_visual()
 
