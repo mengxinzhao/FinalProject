@@ -154,15 +154,11 @@ class SoftmaxClassifier():
         predictions_thres = self.predict(self.test_codes,top_k=1)
         
         all_test = 0.0
-        errors_closeset = {}
-        errors_openset = {}
         label_count = {}
         errors_closeset_count = {}
         errors_openset_count = {}
         train_labels,counts = np.unique(self.train_labels,return_counts=True)
         for test_label,count in zip(train_labels,counts):
-            errors_closeset[test_label] = 0
-            errors_openset[test_label] = 0
             label_count[test_label] = count
             errors_closeset_count[count] = 0
             errors_openset_count[count] = 0
@@ -174,7 +170,6 @@ class SoftmaxClassifier():
                             .format(self.test_idcs[test_id], predictions_thres[test_id], self.test_labels[test_id]))
                 false_reject += 1.0
                 # what id is mistaken for what
-                errors_closeset[self.test_labels[test_id]] += 1
                 errors_closeset_count[label_count[self.test_labels[test_id]] ] += 1
             else:
                 true_accept += 1.0
@@ -222,7 +217,6 @@ class SoftmaxClassifier():
                     false_accept += 1.0
                     logger.info("data id  {} false accepted as label {}, none autherized label {}"
                                 .format(test_id, predictions_thres[test_id], self.random_draw_label[test_id]))
-                    errors_openset[np.asscalar(predictions_thres[test_id])] += 1.0
                     errors_openset_count[label_count[self.test_labels[test_id]] ] += 1
                 else:
                     true_reject += 1.0
@@ -240,19 +234,7 @@ class SoftmaxClassifier():
         TR = true_reject/all_test
         logger.info("true_rejection: {0:.4f}".format(TR))
         logger.info("false_acceptance: {0:.4f}".format(FAR))
-        # print(errors_closeset)
-        # print(errors_openset)
-        # print(errors_closeset_count)
-        # print(errors_openset_count)
-        # draw 
-        # plt.figure(figsize=(5,3))
-        # plt.subplot(1, 2, 1)
-        # plt.bar(list(errors_closeset.keys()),list(errors_closeset.values()),label='closeset')
-        # plt.bar(list(errors_openset.keys()), list(errors_openset.values()),label='openset')
-        # plt.title('errors one labels')
-        # plt.ylabel('error count')
-        # plt.xlabel('labels')
-        # plt.legend(['closeset', 'openset'], loc='lower right')
+
         for key,value in list(errors_closeset_count.items()):
             if value == 0.0:
                 del errors_closeset_count[key]
@@ -338,6 +320,6 @@ if __name__=='__main__':
     clr = SoftmaxClassifier(args.file_name,data_dir=args.input_dir)
     clr.prepare()
     clr.train()
-    #clr.train_history_visual()
+    clr.train_history_visual()
     clr.evaluation()
 

@@ -640,8 +640,8 @@ class TripletClassifier():
         self.model.load_weights(self.classifier_filename)
         #embeddings = np.load(os.path.join(self.data_dir, 'embeddings.npy'))
         #y_labels = np.load(os.path.join(self.data_dir, 'embedding_labels.npy'))
-        embeddings = self.model.predict([self.x_codes, self.x_codes, self.x_codes],batch_size = 128)
-        y_labels = self.y_labels
+        embeddings = self.model.predict([self.val_codes, self.val_codes, self.val_codes],batch_size = 128)
+        y_labels = self.val_labels
         embeddings = embeddings[:,0:embedding_num]
         label_embeddings = []
         label_thres = []
@@ -910,7 +910,7 @@ if __name__=='__main__':
     clr = TripletClassifier(args.file_name,data_dir=args.input_dir,num_embeddings = embedding_num)
     clr.prepare()
     
-    #clr.train()
+    clr.train()
     clr.evaluate()
     #clr.train_history_visual()
 
